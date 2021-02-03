@@ -3,7 +3,7 @@ import gym
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.distributions import Normal
+from torch.distributions import Categorical
 from collections import deque
 
 torch.manual_seed(0)
@@ -13,31 +13,25 @@ class ActorNet(nn.Module):
     def __init__(self):
         super(ActorNet, self).__init__()
 
-        self.lin1 = nn.Linear(3, 64)
+        self.lin1 = nn.Linear(4, 64)
         self.lin2 = nn.Linear(64, 32)
-        self.lin3 = nn.Linear(32, 16)
-        self.mean = nn.Linear(16, 1)
-        self.std = nn.Linear(16, 1)
+        self.lin3 = nn.Linear(32, 2)
         self.relu = nn.ReLU()
-        self.tanh = nn.Tanh()
-        self.softplus = nn.Softplus()
-        self.action_bound = 2.0
+        self.softmax = nn.Softmax(dim=0)
 
     def forward(self, x):
         x = self.relu(self.lin1(x))
         x = self.relu(self.lin2(x))
-        x = self.relu(self.lin3(x))
-        mean = self.tanh(self.mean(x)) * self.action_bound
-        std = self.softplus(self.std(x))
+        x = self.softmax(self.lin3(x))
 
-        return mean, std
+        return x
 
 
 class CriticNet(nn.Module):
     def __init__(self):
         super(CriticNet, self).__init__()
 
-        self.lin1 = nn.Linear(3, 64)
+        self.lin1 = nn.Linear(4, 64)
         self.lin2 = nn.Linear(64, 32)
         self.lin3 = nn.Linear(32, 16)
         self.lin4 = nn.Linear(16, 1)
@@ -55,7 +49,7 @@ class CriticNet(nn.Module):
 
 class Agent():
     def __init__(self):
-        self.gamma = 0.95
+        self.gamma = 0.98
         self.batch_size = 32
         self.actor_lr = 0.0001
         self.critic_lr = 0.001
@@ -70,9 +64,8 @@ class Agent():
         self.memory = deque(maxlen=self.batch_size)
 
     def distribution(self, x):
-        mean, std = self.actor_net(x)
-        std_clamped = torch.clamp(std, self.std_bound[0], self.std_bound[1])
-        distribution = Normal(mean, std_clamped)
+        prob = self.actor_net(x)
+        distribution = Categorical(prob)
 
         return distribution
 
@@ -89,7 +82,11 @@ class Agent():
         with torch.no_grad():
             Vp = self.critic_net(x)
             Vn = self.critic_net(xn)
-            target = r + (1 - done) * self.gamma * Vn
+            if done:
+                target = r
+            else:
+                target = r + self.gamma * Vn
+            target  = target.view([-1, 1])
             advantage = target - Vp
 
         return target, advantage
@@ -101,9 +98,8 @@ class Agent():
         x, u, r, xn, done = zip(*list(self.memory))
         x = torch.FloatTensor(x)
         u = torch.FloatTensor(u)
-        r = torch.FloatTensor(r).view(-1,1)
+        r = torch.FloatTensor(r)
         xn = torch.FloatTensor(xn)
-        done = torch.FloatTensor(done).view(-1,1)
 
         distribution = self.distribution(x)
         log_prob = distribution.log_prob(u)
@@ -118,12 +114,13 @@ class Agent():
 
         self.critic_optim.zero_grad()
         critic_loss = self.critic_net.mse(Vp, target)
-            #critic_loss = torch.norm(Vp - target) / self.batch_size
-
+        #critic_loss = torch.sum((target - Vp) ** 2)
         critic_loss.backward()
         self.critic_optim.step()
 
         self.actor_optim.zero_grad()
+        #for p, a in zip(log_prob, advantage):
+        #    actor_loss = -p * a
         actor_loss = torch.sum(-log_prob * advantage)
         actor_loss.backward()
         self.actor_optim.step()
@@ -162,9 +159,8 @@ def main():
     agent = Agent()
     show_interval = 50
     score = 0
-    reward = 0
 
-    for n_epi in range(10000):
+    for n_epi in range(1000):
         x = env.reset()
         n_data = 0
         while True:
@@ -175,7 +171,6 @@ def main():
             n_data += 1
             x = xn
             score += r_train
-            reward += r
             if n_data == agent.batch_size:
                 agent.train()
                 n_data = 0
@@ -185,11 +180,8 @@ def main():
 
         if n_epi % show_interval == 0 and n_epi != 0:
             print("# of episode: {},\
-                    avg score: {},\
-                  avg return: {}".format(n_epi, score / show_interval,
-                                         reward / show_interval))
+                    avg score: {}".format(n_epi, score / show_interval))
             score = 0
-            reward = 0
 
     env.close()
 
