@@ -6,15 +6,24 @@ import torch.nn as nn
 import torch.optim as optim
 from collections import deque
 import random
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+import time
+
 
 torch.manual_seed(0)
 np.random.seed(0)
 
+def wrap(angle):
+    angle_wrap = (angle + np.pi) % (2 * np.pi) - np.pi
+    return angle_wrap
+
+
 class Pendulum(BaseEnv):
-    def __init__(self, th_init):
+    def __init__(self):
         super().__init__()
-        self.th = BaseSystem(th_init)
-        self.thdot = BaseSystem(0)
+        self.th = BaseSystem()
+        self.thdot = BaseSystem()
         self.g = 10
         self.m = 1.
         self.l = 1.
@@ -23,7 +32,6 @@ class Pendulum(BaseEnv):
 
     def set_dot(self, u):
         th, thdot = self.state
-        th = (th + np.pi) % (2 * np.pi) - np.pi
 
         thdot_tmp = -3 * self.g / (2 * self.l) * np.sin(th + np.pi) \
             + 3. / (self.m * self.l ** 2) * u
@@ -35,12 +43,12 @@ class Pendulum(BaseEnv):
 class Env(BaseEnv):
     def __init__(self):
         super().__init__(dt=0.05, max_t=20)
-        self.pendulum = Pendulum(np.pi)
+        self.pendulum = Pendulum()
 
     def reset(self):
         super().reset()
-        self.state[0] = np.random.uniform(low=-np.pi, high=np.pi)
-        self.state[1] = np.random.uniform(low=-1, high=-1)
+        self.pendulum.state[0] = np.random.uniform(low=-np.pi, high=np.pi)
+        self.pendulum.state[1] = np.random.uniform(low=-1, high=-1)
         th, thdot = self.state
         state = np.array([np.cos(th), np.sin(th), thdot])
         return state
@@ -58,6 +66,8 @@ class Env(BaseEnv):
 
     def reward(self, u):
         th, thdot = self.state
+        th = wrap(th)
+
         r = -th ** 2 - 0.1 * thdot ** 2 - 0.001 * u ** 2
 
         return r
@@ -66,7 +76,6 @@ class Env(BaseEnv):
 class ActorNet(nn.Module):
     def __init__(self, state_size, action_size):
         super(ActorNet, self).__init__()
-
         self.lin1 = nn.Linear(state_size, 64)
         self.lin2 = nn.Linear(64, 32)
         self.lin3 = nn.Linear(32, 16)
@@ -151,20 +160,14 @@ class DDPG():
         hard_update(self.target_actor, self.behavior_actor)
         hard_update(self.target_critic, self.behavior_critic)
 
-    def action_train(self, x):
+    def action(self, x, use="behavior"):
         with torch.no_grad():
-            u = self.behavior_actor(torch.FloatTensor(x))
-            u_clamped = torch.clamp(u, -self.behavior_actor.action_bound,
-                                    self.behavior_actor.action_bound)
+            if use=="behavior":
+                u = self.behavior_actor(torch.FloatTensor(x))
+            else:
+                u = self.target_actor(torch.FloatTensor(x))
 
-        return (u_clamped.item(), )
-
-    def action_test(self, x):
-        u = self.target_actor(torch.FloatTensor(x))
-        u_clamped = torch.clamp(u, -self.target_actor.action_bound,
-                                self.target_actor.action_bound)
-
-        return np.array(u_clamped.item())
+        return np.array(u)
 
     def memorize(self, item):
         self.memory.append(item)
@@ -214,6 +217,8 @@ def hard_update(target, behavior):
     for t_param, b_param in zip(target.parameters(), behavior.parameters()):
         t_param.data.copy_(b_param.data)
 
+plt.style.use('fivethirtyeight')
+
 
 def main():
     # agent parameters
@@ -238,11 +243,11 @@ def main():
     score = 0
     reward = 0
 
-    for n_epi in range(500):
+    for n_epi in range(100):
         x = env.reset()
         noise.reset()
         while True:
-            u = agent.action_train(x) + noise.sample()
+            u = agent.action(x) + noise.sample()
             xn, r, done = env.step(u)
             r_train = (r + 8) / 8
             agent.memorize((x, u, r_train, xn, done))
@@ -258,13 +263,22 @@ def main():
             for test in range(n_test):
                 x = env.reset()
                 while True:
-                    u = agent.action_test(x)
+                    u = agent.action(x, use="target")
                     x, r, done = env.step(u)
                     r_train = (r + 8) / 8
                     score += r_train
                     reward += r
                     if done:
                         break
+
+                    plt.cla()
+                    plt.axis([-10, 10, -10, 10])
+                    plt.scatter(x[0], x[1])
+                    plt.pause(0.1)
+                plt.show(block=False)
+                time.sleep(3)
+                plt.close('all')
+
 
             print("# of episode: {},\
                     avg score: {},\
