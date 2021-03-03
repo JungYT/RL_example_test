@@ -42,16 +42,16 @@ class Env(BaseEnv):
         self.state[0] = np.random.uniform(low=-np.pi, high=np.pi)
         self.state[1] = np.random.uniform(low=-1, high=-1)
         th, thdot = self.state
-        state = np.array([np.cos(th), np.sin(th), thdot])
-        return state
+        state = np.array([ np.cos(th), np.sin(th), thdot ])
+        return state.squeeze()
 
     def step(self, u):
         *_, done = self.update(u=u)
         r = self.reward(u)
         th, thdot = self.state
-        state = np.array([np.cos(th), np.sin(th), thdot])
+        state = np.array([ np.cos(th), np.sin(th), thdot ])
 
-        return state, r, done
+        return state.squeeze(), r, done
 
     def set_dot(self, t, u):
         self.pendulum.set_dot(u)
