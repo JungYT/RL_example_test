@@ -192,11 +192,18 @@ class DDPG():
             target = r + (1 - done) * self.gamma * Qn
 
         Q_noise = self.behavior_critic([x, u])
-
         self.critic_optim.zero_grad()
         critic_loss = self.mse(Q_noise, target)
         critic_loss.backward()
         self.critic_optim.step()
+
+        # Q_noise_tmp = self.behavior_critic([x, u])
+        # critic_loss_tmp = self.mse(Q_noise_tmp, target)
+        # if critic_loss_tmp - critic_loss >= 0:
+        #     print('critic loss dose not decrease:', critic_loss_tmp - critic_loss)
+
+        
+
 
         Q = self.behavior_critic([x, self.behavior_actor(x)])
 
@@ -216,8 +223,6 @@ def soft_update(target, behavior, tau):
 def hard_update(target, behavior):
     for t_param, b_param in zip(target.parameters(), behavior.parameters()):
         t_param.data.copy_(b_param.data)
-
-plt.style.use('fivethirtyeight')
 
 
 def main():
@@ -270,14 +275,6 @@ def main():
                     reward += r
                     if done:
                         break
-
-                    plt.cla()
-                    plt.axis([-10, 10, -10, 10])
-                    plt.scatter(x[0], x[1])
-                    plt.pause(0.1)
-                plt.show(block=False)
-                time.sleep(3)
-                plt.close('all')
 
 
             print("# of episode: {},\

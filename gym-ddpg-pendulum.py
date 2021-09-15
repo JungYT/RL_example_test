@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from collections import deque
 import random
+from matplotlib import pyplot as plt
 
 torch.manual_seed(0)
 np.random.seed(0)
@@ -147,6 +148,11 @@ class DDPG():
         critic_loss.backward()
         self.critic_optim.step()
 
+        # Q_noise_tmp = self.behavior_critic([x, u])
+        # critic_loss_tmp = self.mse(Q_noise_tmp, target)
+        # if critic_loss_tmp - critic_loss == 0:
+        #     print('critic loss dose not change:', critic_loss_tmp - critic_loss)
+
         Q = self.behavior_critic([x, self.behavior_actor(x)])
 
         self.actor_optim.zero_grad()
@@ -186,18 +192,20 @@ def main():
 
     # display
     test_interval = 10
-    n_test = 10
+    n_test = 1
     score = 0
     reward = 0
 
     for n_epi in range(1000):
         x = env.reset()
         noise.reset()
+        breakpoint()
         while True:
             u = agent.action_train(x) + noise.sample()
             xn, r, done, _ = env.step(u)
-            r_train = (r + 8) / 8
-            agent.memorize((x, u, r_train, xn, done))
+            # r_train = (r + 8) / 8
+            # agent.memorize((x, u, r_train, xn, done))
+            agent.memorize((x, u, r, xn, done))
             n_data += 1
             x = xn
             if n_data > 1000:
@@ -208,13 +216,16 @@ def main():
 
         if n_epi % test_interval == 0 and n_epi != 0:
             for test in range(n_test):
+                u_his = deque()
                 x = env.reset()
                 while True:
                     u = agent.action_test(x)
                     x, r, done, _ = env.step(u)
-                    r_train = (r + 8) / 8
-                    score += r_train
+                    # r_train = (r + 8) / 8
+                    # score += r_train
+                    score += r
                     reward += r
+                    u_his.append(u)
                     if done:
                         break
 
@@ -222,6 +233,9 @@ def main():
                     avg score: {},\
                   avg return: {}".format(n_epi, score / n_test,
                                          reward / n_test))
+            
+            plt.plot(range(len(u_his)), u_his)
+            plt.show()
             score = 0
             reward = 0
 
